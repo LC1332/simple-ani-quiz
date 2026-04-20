@@ -2,6 +2,20 @@
 
 基于 `local_data/characters_top15000.jsonl` 与 cos 图（`local_data/z_image_txt2img/{id}.jpg`）的问答站点。
 
+
+
+# TODO
+
+- [x] 完成本地原型搭建
+- [ ] 后台分离在服务器运行
+- [ ] 对接ernie-image-turbo 支持用ernie-image生成
+- [ ] 在aistudio实现前端
+- [ ] 在model_scope实现前端
+- [ ] 实现错误统计功能
+- [ ] 实现吐槽功能（支持汇报 coser图生成错误啥的）
+- [ ] 如果反馈好上一下公网域名
+
+
 ## 结构
 
 - `backend/` — FastAPI：出题、`/api/banner`、`/images/*` 静态图
