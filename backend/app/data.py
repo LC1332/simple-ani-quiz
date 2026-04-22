@@ -10,25 +10,36 @@ COS_DIR = LOCAL_DATA / "z_image_txt2img"
 PORTRAIT_DIR = LOCAL_DATA / "character_portraits_jpg"
 
 
-def _scan_cos_ids() -> set[int]:
+def _scan_jpg_ids(directory: Path) -> set[int]:
     ids: set[int] = set()
-    if not COS_DIR.is_dir():
+    if not directory.is_dir():
         return ids
-    for p in COS_DIR.iterdir():
+    for p in directory.iterdir():
         if p.suffix.lower() == ".jpg" and p.stem.isdigit():
             ids.add(int(p.stem))
     return ids
 
 
-def load_characters() -> tuple[dict[int, dict], list[int], list[int], list[int], set[int]]:
+def load_characters() -> tuple[
+    dict[int, dict],
+    dict[int, dict],
+    list[int],
+    list[int],
+    list[int],
+    set[int],
+    set[int],
+]:
     """
     Returns:
-        by_id: character_id -> raw row dict (only rank <= 2600)
+        char_all: character_id -> raw row dict (all rows in JSONL)
+        by_id: character_id -> raw row dict (only rank 1..2600, for quiz)
         bucket_easy: ids rank 1-200
         bucket_medium: ids rank 201-800
         bucket_hard: ids rank 801-2600
-        cos_ids: set of character ids that have z_image_txt2img/{id}.jpg
+        cos_ids: character ids with z_image_txt2img/{id}.jpg
+        portrait_ids: character ids with character_portraits_jpg/{id}.jpg
     """
+    char_all: dict[int, dict] = {}
     by_id: dict[int, dict] = {}
     if not JSONL_PATH.is_file():
         raise FileNotFoundError(f"Missing data file: {JSONL_PATH}")
@@ -39,11 +50,11 @@ def load_characters() -> tuple[dict[int, dict], list[int], list[int], list[int],
             if not line:
                 continue
             row = json.loads(line)
-            rank = int(row.get("rank", 0))
-            if rank < 1 or rank > 2600:
-                continue
             cid = int(row["character_id"])
-            by_id[cid] = row
+            char_all[cid] = row
+            rank = int(row.get("rank", 0))
+            if 1 <= rank <= 2600:
+                by_id[cid] = row
 
     bucket_easy: list[int] = []
     bucket_medium: list[int] = []
@@ -57,21 +68,35 @@ def load_characters() -> tuple[dict[int, dict], list[int], list[int], list[int],
         elif 801 <= r <= 2600:
             bucket_hard.append(cid)
 
-    cos_ids = _scan_cos_ids()
-    return by_id, bucket_easy, bucket_medium, bucket_hard, cos_ids
+    cos_ids = _scan_jpg_ids(COS_DIR)
+    portrait_ids = _scan_jpg_ids(PORTRAIT_DIR)
+    return char_all, by_id, bucket_easy, bucket_medium, bucket_hard, cos_ids, portrait_ids
 
 
 # Populated by init_data()
+CHAR_ALL: dict[int, dict] = {}
 CHAR_BY_ID: dict[int, dict] = {}
 BUCKET_EASY: list[int] = []
 BUCKET_MEDIUM: list[int] = []
 BUCKET_HARD: list[int] = []
 COS_IDS: set[int] = set()
+PORTRAIT_IDS: set[int] = set()
+ALL_CHARACTER_IDS: list[int] = []
 
 
 def init_data() -> None:
-    global CHAR_BY_ID, BUCKET_EASY, BUCKET_MEDIUM, BUCKET_HARD, COS_IDS
-    CHAR_BY_ID, BUCKET_EASY, BUCKET_MEDIUM, BUCKET_HARD, COS_IDS = load_characters()
+    global CHAR_ALL, CHAR_BY_ID, BUCKET_EASY, BUCKET_MEDIUM, BUCKET_HARD
+    global COS_IDS, PORTRAIT_IDS, ALL_CHARACTER_IDS
+    (
+        CHAR_ALL,
+        CHAR_BY_ID,
+        BUCKET_EASY,
+        BUCKET_MEDIUM,
+        BUCKET_HARD,
+        COS_IDS,
+        PORTRAIT_IDS,
+    ) = load_characters()
+    ALL_CHARACTER_IDS = list(CHAR_ALL.keys())
 
 
 def bucket_for_level(level: str) -> list[int]:

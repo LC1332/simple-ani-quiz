@@ -39,10 +39,10 @@ cd /path/to/simple-ani-quiz
 source .venv/bin/activate   # 或 backend/.venv
 pip install -r backend/requirements.txt
 export PYTHONPATH="${PWD}/backend"
-python3 -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python3 -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
-或使用脚本（等价于上面）：
+或使用脚本（默认 **8010** 端口）：
 
 ```bash
 chmod +x scripts/dev-backend.sh
@@ -56,7 +56,7 @@ cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-python3 -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python3 -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8010
 ```
 
 确保仓库根目录下存在 `local_data/characters_top15000.jsonl` 与 `local_data/z_image_txt2img/`。
@@ -69,7 +69,9 @@ npm install
 npm run dev
 ```
 
-开发时 Vite 将 `/api` 与 `/images` 代理到 `http://127.0.0.1:8000`，因此需先启动后端。
+开发时 Vite 默认将 `/api` 与 `/images` 代理到 `http://127.0.0.1:8010`（与 `scripts/dev-backend.sh` 一致），因此需先启动后端。
+
+若后端跑在其他端口，启动前端时指定代理目标，例如：`VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000 npm run dev`。
 
 可选：设置 `VITE_API_BASE`（例如生产环境完整 API 地址）；默认使用相对路径以配合代理。
 
@@ -83,6 +85,9 @@ npm run dev
 | POST | `/api/feedback` | 501 占位 |
 | GET | `/images/cos/{id}.jpg` | cos 图 |
 | GET | `/images/portrait/{id}.jpg` | 角色头像（若有） |
+| GET | `/api/explore/character/{id}` | 探索页：单角色详情（全量 15000） |
+| GET | `/api/explore/random` | 探索页：随机角色 |
+| GET | `/api/explore/search?q=&limit=` | 探索页：按中文名 / 番剧名子串搜索 |
 
 ## NSFW 候选标注（本地）
 

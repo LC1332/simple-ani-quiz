@@ -77,3 +77,30 @@ class PlaceholderResponse(BaseModel):
 class CertificateQrResponse(BaseModel):
     ok: bool = False
     message: str = "not implemented"
+
+
+class ExploreSearchItem(BaseModel):
+    character_id: int
+    name_cn: str
+    main_series: str
+    rank: int
+
+
+class ExploreCharacter(BaseModel):
+    character_id: int
+    name_cn: str
+    name_ja: Optional[str] = None
+    main_series: str
+    summary: str
+    diffusion_prompt: str
+    rank: int
+    bgm_image_url: Optional[str] = None
+    has_cos_image: bool
+    has_local_portrait: bool
+    similar_ids: List[int]
+    similar_items: List[ExploreSearchItem] = Field(default_factory=list)
+
+
+class ExploreSearchResponse(BaseModel):
+    query: str
+    items: List[ExploreSearchItem]

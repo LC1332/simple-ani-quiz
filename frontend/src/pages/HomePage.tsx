@@ -82,7 +82,7 @@ export default function HomePage() {
           <Link to="/explore" className="card" style={{ padding: "1.25rem" }}>
             <h2 style={{ margin: "0 0 8px", fontSize: "1.15rem" }}>探索</h2>
             <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
-              更多玩法（开发中）
+              浏览角色与 Cos 图
             </p>
           </Link>
         </div>

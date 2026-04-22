@@ -13,6 +13,7 @@ export default function App() {
       <Route path="/quiz/:level" element={<QuizPage />} />
       <Route path="/report/:level" element={<ReportPage />} />
       <Route path="/explore" element={<ExplorePage />} />
+      <Route path="/explore/:id" element={<ExplorePage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
