@@ -7,13 +7,18 @@
 # TODO
 
 - [x] 完成本地原型搭建
-- [ ] 后台分离在服务器运行
+- [x] 后台分离在服务器运行
 - [ ] 对接ernie-image-turbo 支持用ernie-image生成
+- [ ] 实现探索功能（随机看数据库、角色、coser 支持重新生成）
 - [ ] 在aistudio实现前端
 - [ ] 在model_scope实现前端
 - [ ] 实现错误统计功能
 - [ ] 实现吐槽功能（支持汇报 coser图生成错误啥的）
 - [ ] 如果反馈好上一下公网域名
+
+## 
+
+使用 python scripts/apply_nsfw_removals.py 来去除nswf的清单
 
 
 ## 结构
@@ -78,3 +83,22 @@ npm run dev
 | POST | `/api/feedback` | 501 占位 |
 | GET | `/images/cos/{id}.jpg` | cos 图 |
 | GET | `/images/portrait/{id}.jpg` | 角色头像（若有） |
+
+## NSFW 候选标注（本地）
+
+用于根据 prompt 规则与 k 近邻扩展浏览候选 cos 图，标记后写入 `data/remove_nsfw_list.jsonl`（每行 JSON：`id`、`source`：`prompt_rule` \| `knn` \| `manual`、`marked_at` ISO8601），并把对应文件从 `local_data/z_image_txt2img/` 移到 `local_data/z_image_nsfw/`。
+
+**启动标注页（仓库根目录）：**
+
+```bash
+source .venv/bin/activate   # 已安装 backend 依赖即可
+python scripts/nsfw_annotate.py --port 8765
+# 浏览器打开 http://127.0.0.1:8765
+```
+
+**在其他机器拉取 git 后，一键按清单移动图片：**
+
+```bash
+python scripts/apply_nsfw_removals.py        # 实际移动
+python scripts/apply_nsfw_removals.py --dry-run   # 仅打印
+```
