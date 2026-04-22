@@ -1,15 +1,25 @@
 from __future__ import annotations
 
+import base64
+import io
+import os
 import random
+import re
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from dotenv import load_dotenv
+from openai import OpenAI
+from openai import BadRequestError, OpenAIError
+from PIL import Image
+
 from app import data, quiz
-from app.data import LOCAL_DATA, PORTRAIT_DIR, REPO_ROOT
+from app.data import COS_SERVE_DIRS, PORTRAIT_DIR, REGEN_TMP_DIR, REPO_ROOT
 from app.schemas import (
     BannerResponse,
     CertificateQrResponse,
@@ -22,16 +32,37 @@ from app.schemas import (
     QuizResponse,
     QuizSubmitBody,
     QuizSubmitResponse,
+    RegenerateCosBody,
+    RegenerateCosResponse,
 )
+
+ERNIE_SIZES: set[str] = {
+    "1024x1024",
+    "1376x768",
+    "1264x848",
+    "1200x896",
+    "896x1200",
+    "848x1264",
+    "768x1376",
+}
+
+ERNIE_EXTRA_BODY = {
+    "seed": 42,
+    "use_pe": True,
+    "num_inference_steps": 8,
+    "guidance_scale": 1.0,
+}
+
+
+def _row_name_ja(row: dict) -> str | None:
+    raw = row.get("name_ja")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    return str(raw)
 
 
 def _row_to_explore_character(cid: int, row: dict) -> ExploreCharacter:
-    name_ja_raw = row.get("name_ja")
-    name_ja: str | None
-    if name_ja_raw is None or (isinstance(name_ja_raw, str) and not name_ja_raw.strip()):
-        name_ja = None
-    else:
-        name_ja = str(name_ja_raw)
+    name_ja = _row_name_ja(row)
 
     img = row.get("image_url")
     bgm_image_url = str(img) if img else None
@@ -46,6 +77,7 @@ def _row_to_explore_character(cid: int, row: dict) -> ExploreCharacter:
             ExploreSearchItem(
                 character_id=nid,
                 name_cn=str(nrow.get("name_cn", "")),
+                name_ja=_row_name_ja(nrow),
                 main_series=str(nrow.get("main_series", "")),
                 rank=int(nrow.get("rank", 0)),
             )
@@ -110,10 +142,31 @@ def _startup() -> None:
     data.init_data()
 
 
-cos_mount = LOCAL_DATA / "z_image_txt2img"
 portrait_mount = PORTRAIT_DIR
-if cos_mount.is_dir():
-    app.mount("/images/cos", StaticFiles(directory=str(cos_mount)), name="cos_images")
+
+
+@app.get("/images/cos/{character_id}.jpg")
+def serve_cos_image(character_id: int) -> FileResponse:
+    for base in COS_SERVE_DIRS:
+        path = base / f"{character_id}.jpg"
+        if path.is_file():
+            return FileResponse(path, media_type="image/jpeg")
+    raise HTTPException(status_code=404, detail="cos image not found")
+
+
+_REGEN_FILENAME_RE = re.compile(r"^\d+_\d+\.jpg$")
+
+
+@app.get("/images/regen/{filename}")
+def serve_regen_image(filename: str) -> FileResponse:
+    if not _REGEN_FILENAME_RE.fullmatch(filename):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    path = REGEN_TMP_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="regen image not found")
+    return FileResponse(path, media_type="image/jpeg")
+
+
 if portrait_mount.is_dir():
     app.mount(
         "/images/portrait",
@@ -165,11 +218,83 @@ def explore_search(q: str, limit: int = 20) -> ExploreSearchResponse:
             ExploreSearchItem(
                 character_id=cid,
                 name_cn=str(row.get("name_cn", "")),
+                name_ja=_row_name_ja(row),
                 main_series=str(row.get("main_series", "")),
                 rank=int(row.get("rank", 0)),
             )
         )
     return ExploreSearchResponse(query=query, items=items)
+
+
+def _normalize_prompt(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    parts = [p.strip() for p in s.split(",")]
+    if not parts:
+        return ""
+    first = parts[0]
+    second = parts[1] if len(parts) > 1 else ""
+
+    def has_cosplay(x: str) -> bool:
+        return "cosplay" in x.casefold()
+
+    if not has_cosplay(first) and not has_cosplay(second):
+        parts[0] = f"{first} cosplay"
+    return ", ".join(parts)
+
+
+def _bytes_to_jpeg(image_bytes: bytes, dest: Path) -> None:
+    img = Image.open(io.BytesIO(image_bytes))
+    rgb = img.convert("RGB")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    rgb.save(dest, format="JPEG", quality=95)
+
+
+@app.post("/api/explore/regenerate", response_model=RegenerateCosResponse)
+def regenerate_cos(body: RegenerateCosBody) -> RegenerateCosResponse:
+    if body.size not in ERNIE_SIZES:
+        raise HTTPException(status_code=400, detail="unsupported size")
+
+    api_key = (body.api_key or "").strip()
+    if not api_key:
+        load_dotenv(REPO_ROOT / ".env")
+        api_key = os.environ.get("AISTUDIO_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=401, detail="missing api key")
+
+    prompt = _normalize_prompt(body.prompt or "")
+    if not prompt.strip():
+        raise HTTPException(status_code=400, detail="prompt must not be empty")
+
+    client = OpenAI(api_key=api_key, base_url="https://aistudio.baidu.com/llm/lmapi/v3")
+    filename = f"{body.character_id}_{int(time.time())}.jpg"
+    dest = REGEN_TMP_DIR / filename
+
+    try:
+        img = client.images.generate(
+            model="ernie-image-turbo",
+            prompt=prompt,
+            n=1,
+            response_format="b64_json",
+            size=body.size,
+            extra_body=dict(ERNIE_EXTRA_BODY),
+        )
+        item = img.data[0]
+        b64 = getattr(item, "b64_json", None)
+        if not b64:
+            raise HTTPException(status_code=502, detail="missing b64_json in response")
+        raw = base64.b64decode(b64)
+        _bytes_to_jpeg(raw, dest)
+        return RegenerateCosResponse(ok=True, image_url=f"/images/regen/{filename}")
+    except BadRequestError as e:
+        msg: str | None = None
+        body_obj = getattr(e, "body", None)
+        if isinstance(body_obj, dict):
+            msg = body_obj.get("errorMsg") or body_obj.get("error_msg")
+        raise HTTPException(status_code=400, detail=msg or str(e)) from e
+    except OpenAIError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
 
 
 @app.get("/api/banner", response_model=BannerResponse)

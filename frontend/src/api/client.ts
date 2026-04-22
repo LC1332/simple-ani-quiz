@@ -3,6 +3,7 @@ import type {
   ExploreSearchResponse,
   Level,
   QuizResponse,
+  RegenerateCosResponse,
 } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
@@ -57,4 +58,22 @@ export async function searchExplore(
 ): Promise<ExploreSearchResponse> {
   const params = new URLSearchParams({ q, limit: String(limit) });
   return getJson<ExploreSearchResponse>(`/api/explore/search?${params}`);
+}
+
+export async function regenerateCos(body: {
+  character_id: number;
+  prompt: string;
+  size: string;
+  api_key?: string;
+}): Promise<RegenerateCosResponse> {
+  const res = await fetch(`${API_BASE}/api/explore/regenerate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { detail?: string };
+    throw new Error(data?.detail || `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<RegenerateCosResponse>;
 }

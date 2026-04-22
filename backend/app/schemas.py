@@ -82,6 +82,7 @@ class CertificateQrResponse(BaseModel):
 class ExploreSearchItem(BaseModel):
     character_id: int
     name_cn: str
+    name_ja: Optional[str] = None
     main_series: str
     rank: int
 
@@ -104,3 +105,15 @@ class ExploreCharacter(BaseModel):
 class ExploreSearchResponse(BaseModel):
     query: str
     items: List[ExploreSearchItem]
+
+
+class RegenerateCosBody(BaseModel):
+    character_id: int
+    prompt: str = ""
+    size: str = "768x1376"
+    api_key: Optional[str] = None
+
+
+class RegenerateCosResponse(BaseModel):
+    ok: bool = True
+    image_url: str

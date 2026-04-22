@@ -6,24 +6,28 @@ import {
   type CSSProperties,
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import {
-  cosImageUrl,
-  fetchExploreCharacter,
-  fetchExploreRandom,
-  portraitUrl,
-  searchExplore,
-} from "../api/client";
+import * as apiClient from "../api/client";
 import type { ExploreCharacter, ExploreSearchItem } from "../api/types";
 
+function exploreDisplayName(
+  item: Pick<ExploreSearchItem, "name_cn" | "character_id"> & { name_ja?: string | null },
+): string {
+  const cn = item.name_cn.trim();
+  if (cn) return cn;
+  const ja = (item.name_ja ?? "").trim();
+  if (ja) return ja;
+  return `角色 #${item.character_id}`;
+}
+
 const TOKEN_STORAGE_KEY = "explore_regen_token";
-const ASPECT_RATIOS = [
-  "16:9",
-  "3:2",
-  "4:3",
-  "1:1",
-  "3:4",
-  "2:3",
-  "9:16",
+const ERNIE_SIZES = [
+  "768x1376",
+  "1024x1024",
+  "1376x768",
+  "1264x848",
+  "1200x896",
+  "896x1200",
+  "848x1264",
 ] as const;
 
 export default function ExplorePage() {
@@ -45,7 +49,7 @@ export default function ExplorePage() {
   const [portraitFailed, setPortraitFailed] = useState(false);
   const [noPortrait, setNoPortrait] = useState(false);
   const [regenPrompt, setRegenPrompt] = useState("");
-  const [aspect, setAspect] = useState<(typeof ASPECT_RATIOS)[number]>("1:1");
+  const [regenSize, setRegenSize] = useState<(typeof ERNIE_SIZES)[number]>("768x1376");
   const [token, setToken] = useState(() => {
     try {
       return localStorage.getItem(TOKEN_STORAGE_KEY) ?? "";
@@ -53,6 +57,9 @@ export default function ExplorePage() {
       return "";
     }
   });
+  const [regenLoading, setRegenLoading] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
+  const [regenImageUrl, setRegenImageUrl] = useState<string | null>(null);
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim();
@@ -63,7 +70,7 @@ export default function ExplorePage() {
     }
     setSearchLoading(true);
     try {
-      const res = await searchExplore(q, 20);
+      const res = await apiClient.searchExplore(q, 20);
       setSearchResults(res.items);
     } catch {
       setSearchResults([]);
@@ -95,7 +102,7 @@ export default function ExplorePage() {
     setRedirecting(true);
     (async () => {
       try {
-        const c = await fetchExploreRandom();
+        const c = await apiClient.fetchExploreRandom();
         if (!cancelled) navigate(`/explore/${c.character_id}`, { replace: true });
       } catch {
         if (!cancelled) {
@@ -125,7 +132,7 @@ export default function ExplorePage() {
     setLoadError(null);
     (async () => {
       try {
-        const c = await fetchExploreCharacter(num);
+        const c = await apiClient.fetchExploreCharacter(num);
         if (cancelled) return;
         if (c === null) {
           setChar(null);
@@ -151,6 +158,9 @@ export default function ExplorePage() {
     setPortraitFailed(false);
     setNoPortrait(false);
     if (char) setRegenPrompt(char.diffusion_prompt);
+    setRegenError(null);
+    setRegenImageUrl(null);
+    setRegenLoading(false);
   }, [char?.character_id]);
 
   useEffect(() => {
@@ -163,7 +173,7 @@ export default function ExplorePage() {
 
   const pickRandom = async () => {
     try {
-      const c = await fetchExploreRandom();
+      const c = await apiClient.fetchExploreRandom();
       navigate(`/explore/${c.character_id}`);
     } catch {
       alert("随机角色加载失败，请稍后重试。");
@@ -173,7 +183,7 @@ export default function ExplorePage() {
   const portraitSrc = (() => {
     if (!char || noPortrait) return null;
     if (!portraitFailed) {
-      if (char.has_local_portrait) return portraitUrl(char.character_id);
+      if (char.has_local_portrait) return apiClient.portraitUrl(char.character_id);
       return char.bgm_image_url;
     }
     return char.bgm_image_url;
@@ -297,7 +307,7 @@ export default function ExplorePage() {
                         borderBottom: "1px solid rgba(0,0,0,0.04)",
                       }}
                     >
-                      {item.name_cn}
+                      {exploreDisplayName(item)}
                       <span className="muted" style={{ marginLeft: 8 }}>
                         · {item.main_series}
                       </span>
@@ -337,7 +347,9 @@ export default function ExplorePage() {
         ) : char ? (
           <>
             <header style={{ marginBottom: 20 }}>
-              <h1 style={{ margin: "0 0 6px", fontSize: "1.65rem" }}>{char.name_cn}</h1>
+              <h1 style={{ margin: "0 0 6px", fontSize: "1.65rem" }}>
+                {exploreDisplayName(char)}
+              </h1>
               <p className="muted" style={{ margin: 0, fontSize: "1rem" }}>
                 {char.main_series}
               </p>
@@ -395,7 +407,7 @@ export default function ExplorePage() {
                 </div>
                 {char.has_cos_image ? (
                   <img
-                    src={cosImageUrl(char.character_id)}
+                    src={apiClient.cosImageUrl(char.character_id)}
                     alt=""
                     style={{
                       width: "100%",
@@ -458,8 +470,8 @@ export default function ExplorePage() {
               </div>
             </details>
 
-            <details style={{ marginBottom: 20 }}>
-              <summary style={{ cursor: "pointer", fontWeight: 600 }}>重新生成 Cos 图（预留）</summary>
+            <details open style={{ marginBottom: 20 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>重新生成 Cos 图</summary>
               <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                 <label className="muted" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   Prompt
@@ -478,26 +490,24 @@ export default function ExplorePage() {
                   />
                 </label>
                 <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
-                  <legend className="muted" style={{ fontSize: "0.9rem", marginBottom: 8 }}>
-                    比例
-                  </legend>
+                  <legend className="muted" style={{ fontSize: "0.9rem", marginBottom: 8 }}>尺寸</legend>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 14px" }}>
-                    {ASPECT_RATIOS.map((r) => (
-                      <label key={r} style={{ fontSize: "0.88rem", cursor: "pointer" }}>
+                    {ERNIE_SIZES.map((s) => (
+                      <label key={s} style={{ fontSize: "0.88rem", cursor: "pointer" }}>
                         <input
                           type="radio"
-                          name="aspect"
-                          checked={aspect === r}
-                          onChange={() => setAspect(r)}
+                          name="size"
+                          checked={regenSize === s}
+                          onChange={() => setRegenSize(s)}
                           style={{ marginRight: 6 }}
                         />
-                        {r}
+                        {s}
                       </label>
                     ))}
                   </div>
                 </fieldset>
                 <label className="muted" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  API Token（仅本地浏览器）
+                  aistudio API Token
                   <input
                     type="password"
                     autoComplete="off"
@@ -511,17 +521,60 @@ export default function ExplorePage() {
                       fontSize: "0.9rem",
                     }}
                   />
+                  <span style={{ fontSize: "0.78rem", opacity: 0.85 }}>
+                    仅保存在浏览器 localStorage。留空则使用后台 .env 的 AISTUDIO_API_KEY
+                  </span>
                 </label>
                 <button
                   type="button"
                   className="btn-primary"
                   style={{ alignSelf: "flex-start" }}
                   onClick={() => {
-                    alert("接入中，敬请期待");
+                    if (!char) return;
+                    setRegenLoading(true);
+                    setRegenError(null);
+                    setRegenImageUrl(null);
+                    (async () => {
+                      try {
+                        const res = await apiClient.regenerateCos({
+                          character_id: char.character_id,
+                          prompt: regenPrompt,
+                          size: regenSize,
+                          api_key: token.trim() ? token.trim() : undefined,
+                        });
+                        setRegenImageUrl(res.image_url);
+                      } catch (e) {
+                        setRegenError(e instanceof Error ? e.message : "生成失败");
+                      } finally {
+                        setRegenLoading(false);
+                      }
+                    })();
                   }}
+                  disabled={regenLoading}
                 >
-                  生成
+                  {regenLoading ? "生成中…" : "生成"}
                 </button>
+                {regenError ? (
+                  <div style={{ color: "#c0392b", fontSize: "0.9rem" }}>{regenError}</div>
+                ) : null}
+                {regenImageUrl ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div className="muted" style={{ fontSize: "0.85rem" }}>
+                      本次生成预览（临时）
+                    </div>
+                    <img
+                      src={regenImageUrl}
+                      alt=""
+                      style={{
+                        width: "100%",
+                        maxHeight: 360,
+                        objectFit: "contain",
+                        borderRadius: 12,
+                        background: "rgba(0,0,0,0.04)",
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
             </details>
 
@@ -535,7 +588,7 @@ export default function ExplorePage() {
                         to={`/explore/${item.character_id}`}
                         style={{ fontSize: "0.95rem", textDecoration: "underline" }}
                       >
-                        {item.name_cn}
+                        {exploreDisplayName(item)}
                         <span className="muted" style={{ marginLeft: 6 }}>
                           · {item.main_series}
                         </span>

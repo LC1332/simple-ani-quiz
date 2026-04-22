@@ -7,7 +7,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 LOCAL_DATA = REPO_ROOT / "local_data"
 JSONL_PATH = LOCAL_DATA / "characters_top15000.jsonl"
 COS_DIR = LOCAL_DATA / "z_image_txt2img"
+COS_DIR_ERNIE = LOCAL_DATA / "ernie-image"
+REGEN_TMP_DIR = LOCAL_DATA / "ernie-image-regen-tmp"
 PORTRAIT_DIR = LOCAL_DATA / "character_portraits_jpg"
+
+# Prefer ernie-image for new assets; keep legacy dir for older jpg.
+COS_SERVE_DIRS: tuple[Path, ...] = (COS_DIR_ERNIE, COS_DIR)
 
 
 def _scan_jpg_ids(directory: Path) -> set[int]:
@@ -36,7 +41,7 @@ def load_characters() -> tuple[
         bucket_easy: ids rank 1-200
         bucket_medium: ids rank 201-800
         bucket_hard: ids rank 801-2600
-        cos_ids: character ids with z_image_txt2img/{id}.jpg
+        cos_ids: character ids with ernie-image/{id}.jpg or z_image_txt2img/{id}.jpg
         portrait_ids: character ids with character_portraits_jpg/{id}.jpg
     """
     char_all: dict[int, dict] = {}
@@ -68,7 +73,9 @@ def load_characters() -> tuple[
         elif 801 <= r <= 2600:
             bucket_hard.append(cid)
 
-    cos_ids = _scan_jpg_ids(COS_DIR)
+    cos_ids: set[int] = set()
+    for d in COS_SERVE_DIRS:
+        cos_ids |= _scan_jpg_ids(d)
     portrait_ids = _scan_jpg_ids(PORTRAIT_DIR)
     return char_all, by_id, bucket_easy, bucket_medium, bucket_hard, cos_ids, portrait_ids
 
@@ -87,6 +94,12 @@ ALL_CHARACTER_IDS: list[int] = []
 def init_data() -> None:
     global CHAR_ALL, CHAR_BY_ID, BUCKET_EASY, BUCKET_MEDIUM, BUCKET_HARD
     global COS_IDS, PORTRAIT_IDS, ALL_CHARACTER_IDS
+    REGEN_TMP_DIR.mkdir(parents=True, exist_ok=True)
+    for p in REGEN_TMP_DIR.glob("*.jpg"):
+        try:
+            p.unlink()
+        except OSError:
+            pass
     (
         CHAR_ALL,
         CHAR_BY_ID,

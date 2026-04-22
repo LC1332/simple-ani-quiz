@@ -39,6 +39,7 @@ export type QuizResponse = {
 export type ExploreSearchItem = {
   character_id: number;
   name_cn: string;
+  name_ja?: string | null;
   main_series: string;
   rank: number;
 };
@@ -61,4 +62,9 @@ export type ExploreCharacter = {
 export type ExploreSearchResponse = {
   query: string;
   items: ExploreSearchItem[];
+};
+
+export type RegenerateCosResponse = {
+  ok: true;
+  image_url: string;
 };
